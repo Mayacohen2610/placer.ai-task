@@ -1,17 +1,27 @@
-# Node
+# === Python backend ===
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# === Node frontend ===
 node_modules/
 npm-debug.log
 yarn-error.log
-
-# Build outputs
 dist/
 build/
 
-# Environment files
+# === Environment & local files ===
 .env
 .env.local
 
-# OS / IDE
+# === OS / IDE ===
 .DS_Store
 .vscode/
 .idea/
+
+# === Misc ===
+*.bak
+*.tmp
