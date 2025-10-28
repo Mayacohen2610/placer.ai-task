@@ -1,91 +1,158 @@
 #!/usr/bin/env python3
 """
-Simple CSV -> POST /api/ingest helper.
+Load the Bigbox Stores Metrics CSV into the backend SQLite database used by the app.
 
 Usage:
-  python load_csv.py path/to/file.csv [--dry-run] [--url http://localhost:8000/api/ingest]
+  python load_csv.py [--csv PATH] [--db PATH] [--dry-run] [--clear]
 
-Expects CSV header with columns: poi,date,visitors,cbg,dma,dwell
-Date format: YYYY-MM-DD
+Defaults:
+  csv: ../Bigbox Stores Metrics.csv  (relative to backend/)
+  db:  src/data.db
+
+This script inserts rows into the `venues` table. If --clear is provided the table
+will be truncated before inserting.
 """
 import csv
-import json
-import sys
 import argparse
-from datetime import datetime
-from urllib import request, error
+import sqlite3
+import os
+import sys
 
 
-def validate_row(r):
-    # basic validation and conversion
+FIELD_ORDER = [
+    'entity_id','entity_type','name','foot_traffic','sales','avg_dwell_time_min','area_sqft','ft_per_sqft',
+    'geolocation','country','state_code','state_name','city','postal_code','formatted_city','street_address',
+    'sub_category','dma','cbsa','chain_id','chain_name','store_id','date_opened','date_closed'
+]
+
+
+def parse_int(v):
+    if v is None or v == '':
+        return None
     try:
-        datetime.strptime(r.get("date", ""), "%Y-%m-%d")
-    except Exception as e:
-        raise ValueError(f"Bad date '{r.get('date')}'")
-    try:
-        r["visitors"] = int(r.get("visitors", 0))
+        return int(v)
     except Exception:
-        raise ValueError(f"Bad visitors '{r.get('visitors')}'")
-    # dwell optional float
-    if r.get("dwell") is not None and r.get("dwell") != "":
         try:
-            r["dwell"] = float(r["dwell"])
+            return int(float(v))
         except Exception:
-            raise ValueError(f"Bad dwell '{r.get('dwell')}'")
-    return r
+            return None
 
 
-def load_csv(path):
-    rows = []
-    with open(path, newline='', encoding='utf-8') as fh:
+def parse_float(v):
+    if v is None or v == '':
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def normalize_row(r):
+    # normalize keys to lower/strip and map to FIELD_ORDER names
+    row = {k.strip(): (v.strip() if isinstance(v, str) else v) for k, v in r.items()}
+    out = []
+    for key in FIELD_ORDER:
+        val = row.get(key, '')
+        # numeric conversions for known fields
+        if key in ('foot_traffic',):
+            out.append(parse_int(val))
+        elif key in ('sales','avg_dwell_time_min','area_sqft','ft_per_sqft'):
+            out.append(parse_float(val))
+        else:
+            out.append(val if val != '' else None)
+    return out
+
+
+def ensure_table(conn):
+    cur = conn.cursor()
+    cur.execute('''CREATE TABLE IF NOT EXISTS venues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id TEXT,
+        entity_type TEXT,
+        name TEXT,
+        foot_traffic INTEGER,
+        sales REAL,
+        avg_dwell_time_min REAL,
+        area_sqft REAL,
+        ft_per_sqft REAL,
+        geolocation TEXT,
+        country TEXT,
+        state_code TEXT,
+        state_name TEXT,
+        city TEXT,
+        postal_code TEXT,
+        formatted_city TEXT,
+        street_address TEXT,
+        sub_category TEXT,
+        dma TEXT,
+        cbsa TEXT,
+        chain_id TEXT,
+        chain_name TEXT,
+        store_id TEXT,
+        date_opened TEXT,
+        date_closed TEXT
+    );''')
+    conn.commit()
+
+
+def load_into_db(csv_path, db_path, dry_run=False, clear=False):
+    if not os.path.exists(csv_path):
+        print('CSV not found:', csv_path)
+        return 1
+
+    conn = sqlite3.connect(db_path)
+    ensure_table(conn)
+    cur = conn.cursor()
+
+    if clear:
+        cur.execute('DELETE FROM venues;')
+        conn.commit()
+
+    to_insert = []
+    errors = []
+    with open(csv_path, newline='', encoding='utf-8') as fh:
         reader = csv.DictReader(fh)
-        for i, r in enumerate(reader):
-            # normalize keys to expected names
-            row = {k.strip(): v.strip() if isinstance(v, str) else v for k, v in r.items()}
-            rows.append(row)
-    return rows
+        for i, r in enumerate(reader, start=1):
+            try:
+                row = normalize_row(r)
+                to_insert.append(row)
+            except Exception as e:
+                errors.append((i, r, str(e)))
+
+    print(f'Read {len(to_insert)} rows, {len(errors)} errors')
+    if errors:
+        for e in errors[:5]:
+            print('Err row', e[0], e[2])
+
+    if dry_run:
+        # show sample
+        import json
+        print(json.dumps([dict(zip(FIELD_ORDER, r)) for r in to_insert[:10]], indent=2, ensure_ascii=False))
+        return 0
+
+    placeholders = ','.join('?' for _ in FIELD_ORDER)
+    sql = f'INSERT INTO venues ({",".join(FIELD_ORDER)}) VALUES ({placeholders})'
+    cur.executemany(sql, to_insert)
+    conn.commit()
+    conn.close()
+    print('Inserted', len(to_insert), 'rows into', db_path)
+    return 0
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('csv')
+    p.add_argument('--csv', default=os.path.join(os.path.dirname(__file__), '..', 'Bigbox Stores Metrics.csv'))
+    p.add_argument('--db', default=os.path.join(os.path.dirname(__file__), 'src', 'data.db'))
     p.add_argument('--dry-run', action='store_true')
-    p.add_argument('--url', default='http://localhost:8000/api/ingest')
+    p.add_argument('--clear', action='store_true', help='Clear venues table before inserting')
     args = p.parse_args()
 
-    rows = load_csv(args.csv)
-    validated = []
-    errors = []
-    for r in rows:
-        try:
-            validated.append(validate_row(r))
-        except Exception as e:
-            errors.append((r, str(e)))
-
-    print(f"Read {len(rows)} rows, {len(validated)} valid, {len(errors)} errors")
-    if errors:
-        for r, e in errors[:5]:
-            print("Error:", e, "row:", r)
-
-    if args.dry_run:
-        print(json.dumps(validated[:10], indent=2, ensure_ascii=False))
-        return
-
-    data = json.dumps(validated).encode('utf-8')
-    req = request.Request(args.url, data=data, headers={
-        'Content-Type': 'application/json'
-    }, method='POST')
-    try:
-        with request.urlopen(req) as resp:
-            body = resp.read().decode('utf-8')
-            print('Response:', body)
-    except error.HTTPError as e:
-        print('HTTP Error:', e.code, e.reason)
-        print(e.read().decode('utf-8'))
-        sys.exit(1)
-    except Exception as e:
-        print('Error sending request:', e)
-        sys.exit(1)
+    csv_path = os.path.abspath(args.csv)
+    db_path = os.path.abspath(args.db)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    rc = load_into_db(csv_path, db_path, dry_run=args.dry_run, clear=args.clear)
+    if rc != 0:
+        sys.exit(rc)
 
 
 if __name__ == '__main__':

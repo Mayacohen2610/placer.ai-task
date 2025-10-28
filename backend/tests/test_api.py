@@ -20,22 +20,25 @@ def test_pois_ok():
     data = r.json()
     assert isinstance(data, list)
 
-# Verify /api/summary returns expected keys
-def test_summary_shape():
-    r = client.get('/api/summary')
-    assert r.status_code == 200
-    data = r.json()
-    # expected keys present
-    assert 'rows' in data and 'total_visitors' in data and 'avg_visitors' in data
 
-# Verify /api/visits returns a list of visit records
-def test_visits_shape():
-    r = client.get('/api/visits')
+
+def test_venues_list_and_pagination():
+    # basic list endpoint
+    r = client.get('/api/venues')
     assert r.status_code == 200
     data = r.json()
-    assert isinstance(data, list)
-    if data:
-        sample = data[0]
-        expected_keys = {'poi', 'date', 'visitors', 'cbg', 'dma', 'dwell'}
-        assert expected_keys.issubset(sample.keys())    
+    assert 'items' in data and 'total' in data and 'page' in data
+    assert isinstance(data['items'], list)
+    # per-item shape if any
+    if data['items']:
+        sample = data['items'][0]
+        expected = {'id', 'entity_id', 'name', 'chain_name', 'category', 'dma', 'city', 'state', 'foot_traffic'}
+        assert expected.issubset(set(sample.keys()))
+
+
+def test_venues_summary_shape():
+    r = client.get('/api/venues/summary')
+    assert r.status_code == 200
+    data = r.json()
+    assert 'venues' in data and 'total_foot_traffic' in data
         
