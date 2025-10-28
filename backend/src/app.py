@@ -1,10 +1,9 @@
 # This file implements a FastAPI backend for managing and querying foot traffic data. It defines
-# endpoints to retrieve points of interest (POIs), visit records, summary statistics, and to
-# ingest new visit data. 
+# endpoints to retrieve points of interest (POIs), visit records, summary statistics.
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, List
 import sqlite3
 import os
 import csv
@@ -145,15 +144,10 @@ def on_startup():
     init_db()
 
 # GET /api/pois
-# Purpose: returns a sorted list of distinct POI names present in the visits table.
-# Interaction: queries the visits table and returns a simple array consumed by the frontend filter UI.
-# To modify: change the SQL if you want different ordering, filtering (e.g., only POIs with recent visits), or to include counts.
+# Purpose: returns a sorted list of distinct POI names present in the venues table.
 @app.get("/api/pois")
 def get_pois():
     """Return distinct venue names (POIs) from the venues table.
-
-    This replaces the older visits-based POI list and matches the new CSV-driven
-    venues dataset.
     """
     conn = get_conn()
     cur = conn.cursor()
@@ -162,31 +156,69 @@ def get_pois():
     conn.close()
     return rows
 
+# GET /api/distinct/{field}
+# Purpose: returns distinct values for specified fields with optional filtering.
+@app.get("/api/distinct/{field}")
+def get_distinct(field: str, q: Optional[str] = Query(default=None)):
+    """Return distinct values for supported fields: 'chain', 'category', 'dma', 'name'.
+    Optional query `q` filters suggestions using partial, case-insensitive match.
+    """
+    mapping = {
+        'chain': 'chain_name',
+        'category': 'sub_category',
+        'dma': 'dma',
+        'name': 'name',
+    }
+    col = mapping.get(field)
+    if not col:
+        raise HTTPException(status_code=400, detail='unsupported field')
 
+    conn = get_conn()
+    cur = conn.cursor()
+    if q:
+        sql = f"SELECT DISTINCT {col} FROM venues WHERE {col} IS NOT NULL AND {col} <> '' AND {col} LIKE ? COLLATE NOCASE ORDER BY {col} LIMIT 100;"
+        cur.execute(sql, (f"%{q}%",))
+    else:
+        sql = f"SELECT DISTINCT {col} FROM venues WHERE {col} IS NOT NULL AND {col} <> '' ORDER BY {col} LIMIT 500;"
+        cur.execute(sql)
+    rows = [r[0] for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+# GET /api/venues
+# Purpose: returns a paginated list of venues with optional filtering by chain, category, DMA.
 @app.get("/api/venues")
 def list_venues(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=500),
-    chain: Optional[str] = Query(default=None),
-    category: Optional[str] = Query(default=None),
-    dma: Optional[str] = Query(default=None),
+    chain: Optional[List[str]] = Query(default=None),
+    category: Optional[List[str]] = Query(default=None),
+    dma: Optional[List[str]] = Query(default=None),
     city: Optional[str] = Query(default=None),
     state: Optional[str] = Query(default=None),
     open_status: Optional[str] = Query(default=None),  # 'open'|'closed'|'all'
 ):
     where = []
     params = []
-    # Use case-insensitive partial matching so frontend text inputs work as expected.
-    # If the user types part of a chain/category/DMA name we match it (LIKE '%value%')
-    if chain and chain.lower() != 'all':
-        where.append("chain_name LIKE ? COLLATE NOCASE")
-        params.append(f"%{chain}%")
-    if category and category.lower() != 'all':
-        where.append("sub_category LIKE ? COLLATE NOCASE")
-        params.append(f"%{category}%")
-    if dma and dma.lower() != 'all':
-        where.append("dma LIKE ? COLLATE NOCASE")
-        params.append(f"%{dma}%")
+    # Support multiple selections for chain/category/dma. Each provided value will be
+    # matched case-insensitively and partially (LIKE '%value%'). Multiple values per
+    # field are ORed together and different fields are ANDed.
+    def add_multi_like(field_vals, column_name):
+        if not field_vals:
+            return
+        # ignore the sentinel 'all' entries
+        vals = [v for v in field_vals if v and v.lower() != 'all']
+        if not vals:
+            return
+        sub = []
+        for v in vals:
+            sub.append(f"{column_name} LIKE ? COLLATE NOCASE")
+            params.append(f"%{v}%")
+        where.append("(" + " OR ".join(sub) + ")")
+
+    add_multi_like(chain, 'chain_name')
+    add_multi_like(category, 'sub_category')
+    add_multi_like(dma, 'dma')
     if city and city.lower() != 'all':
         where.append("city = ?")
         params.append(city)
@@ -244,24 +276,31 @@ def list_venues(
 
 @app.get("/api/venues/summary")
 def venues_summary(
-    chain: Optional[str] = Query(default=None),
-    category: Optional[str] = Query(default=None),
-    dma: Optional[str] = Query(default=None),
+    chain: Optional[List[str]] = Query(default=None),
+    category: Optional[List[str]] = Query(default=None),
+    dma: Optional[List[str]] = Query(default=None),
     city: Optional[str] = Query(default=None),
     state: Optional[str] = Query(default=None),
     open_status: Optional[str] = Query(default=None),
 ):
     where = []
     params = []
-    if chain and chain.lower() != 'all':
-        where.append("chain_name = ?")
-        params.append(chain)
-    if category and category.lower() != 'all':
-        where.append("sub_category = ?")
-        params.append(category)
-    if dma and dma.lower() != 'all':
-        where.append("dma = ?")
-        params.append(dma)
+    # support multiple values (ORed) and partial case-insensitive matching
+    def add_multi_like(field_vals, column_name):
+        if not field_vals:
+            return
+        vals = [v for v in field_vals if v and v.lower() != 'all']
+        if not vals:
+            return
+        sub = []
+        for v in vals:
+            sub.append(f"{column_name} LIKE ? COLLATE NOCASE")
+            params.append(f"%{v}%")
+        where.append("(" + " OR ".join(sub) + ")")
+
+    add_multi_like(chain, 'chain_name')
+    add_multi_like(category, 'sub_category')
+    add_multi_like(dma, 'dma')
     if city and city.lower() != 'all':
         where.append("city = ?")
         params.append(city)

@@ -1,6 +1,4 @@
-# Fullstack Foot-Traffic Starter (FastAPI + React)
-
-**Goal:** ship a working dashboard in minutes during a timed assignment.
+# Placer.ai task
 
 ## Stack
 - Backend: FastAPI + SQLite (seed data auto-created)

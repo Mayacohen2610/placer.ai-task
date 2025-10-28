@@ -3,12 +3,14 @@ import Filters from './components/Filters.jsx'
 
 // Single-table POI dashboard with server-side pagination and three filters.
 export default function App() {
-  const [chain, setChain] = useState('')
-  const [category, setCategory] = useState('')
-  const [dma, setDma] = useState('')
+  const [chain, setChain] = useState([])
+  const [category, setCategory] = useState([])
+  const [dma, setDma] = useState([])
   const [openOnly, setOpenOnly] = useState(false)
+  const [multiEnabled, setMultiEnabled] = useState(true)
 
   const [items, setItems] = useState([])
+  const [summary, setSummary] = useState({ venues: 0, total_foot_traffic: 0 })
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(25)
   const [total, setTotal] = useState(0)
@@ -18,21 +20,28 @@ export default function App() {
     async function load() {
       setLoading(true)
       const q = new URLSearchParams()
-      q.append('page', String(page))
-      q.append('per_page', String(perPage))
-      if (chain && chain.trim() !== '') q.append('chain', chain.trim())
-      if (category && category.trim() !== '') q.append('category', category.trim())
-      if (dma && dma.trim() !== '') q.append('dma', dma.trim())
+  q.append('page', String(page))
+  q.append('per_page', String(perPage))
+  // append multiple values for chain/category/dma
+  if (Array.isArray(chain) && chain.length > 0) chain.forEach(c => q.append('chain', c))
+  if (Array.isArray(category) && category.length > 0) category.forEach(c => q.append('category', c))
+  if (Array.isArray(dma) && dma.length > 0) dma.forEach(d => q.append('dma', d))
       if (openOnly) q.append('open_status', 'open')
       const suffix = q.toString() ? `?${q.toString()}` : ''
       try {
-        const res = await fetch(`/api/venues${suffix}`)
-        const data = await res.json()
-        setItems(data.items || [])
-        setTotal(data.total || 0)
+        const [resV, resS] = await Promise.all([
+          fetch(`/api/venues${suffix}`),
+          fetch(`/api/venues/summary${suffix}`),
+        ])
+        const dataV = await resV.json()
+        const dataS = await resS.json()
+        setItems(dataV.items || [])
+        setTotal(dataV.total || 0)
+        setSummary({ venues: dataS.venues || 0, total_foot_traffic: dataS.total_foot_traffic || 0 })
       } catch (e) {
         setItems([])
         setTotal(0)
+        setSummary({ venues: 0, total_foot_traffic: 0 })
       }
       setLoading(false)
     }
@@ -47,18 +56,24 @@ export default function App() {
       <h1 style={{ marginBottom: 8 }}>POI Table</h1>
 
       <Filters
-        chain={chain}
-        setChain={setChain}
-        category={category}
-        setCategory={setCategory}
-        dma={dma}
-        setDma={setDma}
+        chains={chain}
+        setChains={setChain}
+        categories={category}
+        setCategories={setCategory}
+        dmas={dma}
+        setDmas={setDma}
         openOnly={openOnly}
         setOpenOnly={setOpenOnly}
+        multiEnabled={multiEnabled}
+        setMultiEnabled={setMultiEnabled}
       />
 
       <div style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <KpiCard title="Venues" value={loading ? '…' : summary.venues} />
+            <KpiCard title="Total Foot Traffic" value={loading ? '…' : summary.total_foot_traffic} />
+          </div>
           <div>{loading ? 'Loading…' : `${total} venues`}</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ fontSize: 13 }}>Per page:
@@ -107,4 +122,13 @@ function Th({ children }) {
 }
 function Td({ children }) {
   return <td style={{ padding: '8px 10px', fontSize: 13 }}>{children}</td>
+}
+
+function KpiCard({ title, value }) {
+  return (
+    <div style={{ border: '1px solid #eee', borderRadius: 10, padding: 8, minWidth: 160 }}>
+      <div style={{ fontSize: 12, color: '#666' }}>{title}</div>
+      <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
+    </div>
+  )
 }

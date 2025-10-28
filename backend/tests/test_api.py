@@ -21,7 +21,8 @@ def test_pois_ok():
     assert isinstance(data, list)
 
 
-
+# Venue list and pagination
+# tests the /api/venues endpoint for correct response structure and pagination.
 def test_venues_list_and_pagination():
     # basic list endpoint
     r = client.get('/api/venues')
@@ -35,7 +36,8 @@ def test_venues_list_and_pagination():
         expected = {'id', 'entity_id', 'name', 'chain_name', 'category', 'dma', 'city', 'state', 'foot_traffic'}
         assert expected.issubset(set(sample.keys()))
 
-
+# Venue summary
+# tests the /api/venues/summary endpoint for correct response structure.
 def test_venues_summary_shape():
     r = client.get('/api/venues/summary')
     assert r.status_code == 200
