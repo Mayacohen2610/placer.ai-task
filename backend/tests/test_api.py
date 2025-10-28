@@ -43,4 +43,30 @@ def test_venues_summary_shape():
     assert r.status_code == 200
     data = r.json()
     assert 'venues' in data and 'total_foot_traffic' in data
+
+
+# Distinct suggestion endpoints (chain, category, dma)
+def test_distinct_chain_and_q():
+    r = client.get('/api/distinct/chain')
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data, list)
+    # if there are any suggestions, they should be strings
+    if data:
+        assert isinstance(data[0], str)
+
+    # test query param filters (partial match) - use first value if present
+    if data:
+        sample = data[0]
+        q = sample[:3]
+        r2 = client.get(f'/api/distinct/chain?q={q}')
+        assert r2.status_code == 200
+        data2 = r2.json()
+        assert isinstance(data2, list)
+
+
+def test_distinct_invalid_field():
+    # unsupported field should return 400
+    r = client.get('/api/distinct/unsupported_field')
+    assert r.status_code == 400
         

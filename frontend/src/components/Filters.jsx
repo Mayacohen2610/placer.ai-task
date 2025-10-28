@@ -1,3 +1,6 @@
+// frontend/src/components/Filters.jsx
+// Filters component with multi-selects for chain, category, dma and open-only checkbox
+
 import React, { useEffect, useState, useRef } from 'react'
 
 // Small multi-select with autocomplete using backend /api/distinct/{field}?q=...
