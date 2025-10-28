@@ -25,6 +25,9 @@ npm run dev
 # http://localhost:5173  (calls /api/* proxied to :8000)
 ```
 
+### Quick run (windows only)
+- `start-dev.bat`
+
 ## Useful API endpoints
 - `GET /api/pois`
 - `GET /api/visits?poi=Gym%20C&date_from=2025-10-18&date_to=2025-10-20`

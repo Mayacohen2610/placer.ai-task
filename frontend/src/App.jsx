@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Filters from './components/Filters.jsx'
 import VisitsChart from './components/VisitsChart.jsx'
 
+// Main application component for the Foot Traffic Dashboard.
+// Purpose: fetches POI data, visit summaries, and visit rows from the backend API;
+// provides filtering controls and displays KPIs, a chart, and a data table.
+// Interaction: communicates with backend API endpoints /api/pois, /api/summary, and /api/visits;
+// manages state for selected POI and date range filters.
+// To modify: adjust state management, add more filters, or change displayed KPIs and chart types as needed.
 export default function App() {
   const [pois, setPois] = useState([])
   const [poi, setPoi] = useState('All')
@@ -10,10 +16,12 @@ export default function App() {
   const [summary, setSummary] = useState({ rows: 0, total_visitors: 0, avg_visitors: 0, avg_dwell: 0 })
   const [rows, setRows] = useState([])
 
+  // Fetch POIs on mount
   useEffect(() => {
     fetch('/api/pois').then(r => r.json()).then(setPois).catch(()=>setPois([]))
   }, [])
 
+  // Fetch summary and rows when filters change
   useEffect(() => {
     const q = new URLSearchParams()
     if (poi && poi !== 'All') q.append('poi', poi)
@@ -24,6 +32,7 @@ export default function App() {
     fetch(`/api/visits${suffix}`).then(r => r.json()).then(setRows)
   }, [poi, dateFrom, dateTo])
 
+  // Memoized chart data to optimize re-renders
   const chartData = useMemo(() => rows.map(r => ({ date: r.date, visitors: r.visitors })), [rows])
 
   return (

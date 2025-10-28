@@ -1,4 +1,8 @@
 import React from 'react'
+// Filters component for selecting POI and date range.
+// Purpose: provides dropdown and date inputs to filter visit data displayed in the dashboard.
+// Interaction: calls setPoi, setDateFrom, and setDateTo callbacks to update parent component state.
+// To modify: add more filter options or change styling as needed.
 
 export default function Filters({ pois, poi, setPoi, dateFrom, setDateFrom, dateTo, setDateTo }) {
   return (
@@ -21,3 +25,14 @@ export default function Filters({ pois, poi, setPoi, dateFrom, setDateFrom, date
     </div>
   )
 }
+
+// exaple of add more filter - uncomment to use
+/*
+      <div>
+        <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>DMA</div>
+        <select value={dma} onChange={e => setDma(e.target.value)}>
+          <option>All</option>
+          {dmas.map(d => <option key={d}>{d}</option>)}
+        </select>
+      </div>  
+*/      
