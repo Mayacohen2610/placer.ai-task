@@ -145,9 +145,13 @@ def on_startup():
 
 # GET /api/pois
 # Purpose: returns a sorted list of distinct POI names present in the venues table.
-@app.get("/api/pois")
+# NOTE: this endpoint is no longer used by the frontend. It is kept for
+# backward-compatibility. 
+@app.get("/api/pois", deprecated=True)
 def get_pois():
     """Return distinct venue names (POIs) from the venues table.
+
+    Deprecated: frontend uses `/api/venues` and `/api/distinct/{field}` instead.
     """
     conn = get_conn()
     cur = conn.cursor()
@@ -158,16 +162,17 @@ def get_pois():
 
 # GET /api/distinct/{field}
 # Purpose: returns distinct values for specified fields with optional filtering.
+# in used by frontend to populate filter dropdowns for chain, category, DMA.
 @app.get("/api/distinct/{field}")
 def get_distinct(field: str, q: Optional[str] = Query(default=None)):
     """Return distinct values for supported fields: 'chain', 'category', 'dma', 'name'.
     Optional query `q` filters suggestions using partial, case-insensitive match.
     """
+    # supported suggestion fields for frontend filters
     mapping = {
         'chain': 'chain_name',
         'category': 'sub_category',
         'dma': 'dma',
-        'name': 'name',
     }
     col = mapping.get(field)
     if not col:
@@ -184,6 +189,7 @@ def get_distinct(field: str, q: Optional[str] = Query(default=None)):
     rows = [r[0] for r in cur.fetchall()]
     conn.close()
     return rows
+
 
 # GET /api/venues
 # Purpose: returns a paginated list of venues with optional filtering by chain, category, DMA.
@@ -242,7 +248,8 @@ def list_venues(
     count_sql = f"SELECT COUNT(*) {base_sql};"
     cur.execute(count_sql, params)
     total = cur.fetchone()[0]
-
+    
+    # paginated select
     offset = (page - 1) * per_page
     select_sql = f"SELECT id, entity_id, name, chain_name, sub_category, dma, city, state_name, foot_traffic, date_opened, date_closed {base_sql} ORDER BY name COLLATE NOCASE ASC LIMIT ? OFFSET ?;"
     exec_params = list(params) + [per_page, offset]
@@ -274,6 +281,8 @@ def list_venues(
     }
 
 
+# GET /api/venues/summary
+# Purpose: returns summary statistics about venues with optional filtering.
 @app.get("/api/venues/summary")
 def venues_summary(
     chain: Optional[List[str]] = Query(default=None),
