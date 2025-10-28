@@ -83,6 +83,31 @@ export default function App() {
                 <option value={50}>50</option>
               </select>
             </label>
+            <button onClick={async () => {
+              // build query suffix like the load effect
+              const q = new URLSearchParams()
+              if (Array.isArray(chain) && chain.length > 0) chain.forEach(c => q.append('chain', c))
+              if (Array.isArray(category) && category.length > 0) category.forEach(c => q.append('category', c))
+              if (Array.isArray(dma) && dma.length > 0) dma.forEach(d => q.append('dma', d))
+              if (openOnly) q.append('open_status', 'open')
+              const suffix = q.toString() ? `?${q.toString()}` : ''
+              try {
+                const res = await fetch(`/api/venues/export${suffix}`)
+                if (!res.ok) throw new Error('Export failed')
+                const blob = await res.blob()
+                const url = window.URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = 'venues.csv'
+                document.body.appendChild(a)
+                a.click()
+                a.remove()
+                window.URL.revokeObjectURL(url)
+              } catch (e) {
+                console.error('Export error', e)
+                alert('Export failed')
+              }
+            }} style={{ marginLeft: 8 }}>Export CSV</button>
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>Prev</button>
             <div style={{ minWidth: 80, textAlign: 'center' }}>Page {page}</div>
             <button onClick={() => setPage(p => p + 1)} disabled={page * perPage >= total}>Next</button>

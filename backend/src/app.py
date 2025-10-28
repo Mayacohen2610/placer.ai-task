@@ -2,11 +2,13 @@
 # endpoints to retrieve points of interest (POIs), visit records, summary statistics.
 
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 import sqlite3
 import os
 import csv
+import io
 
 # Path to the SQLite database file.
 DB_PATH = os.path.join(os.path.dirname(__file__), "data.db")
@@ -248,7 +250,7 @@ def list_venues(
     count_sql = f"SELECT COUNT(*) {base_sql};"
     cur.execute(count_sql, params)
     total = cur.fetchone()[0]
-    
+
     # paginated select
     offset = (page - 1) * per_page
     select_sql = f"SELECT id, entity_id, name, chain_name, sub_category, dma, city, state_name, foot_traffic, date_opened, date_closed {base_sql} ORDER BY name COLLATE NOCASE ASC LIMIT ? OFFSET ?;"
@@ -335,3 +337,73 @@ def venues_summary(
     return {"venues": cnt or 0, "total_foot_traffic": total_ft or 0}
 
     conn.close()
+
+
+
+@app.get("/api/venues/export")
+def export_venues(
+    chain: Optional[List[str]] = Query(default=None),
+    category: Optional[List[str]] = Query(default=None),
+    dma: Optional[List[str]] = Query(default=None),
+    city: Optional[str] = Query(default=None),
+    state: Optional[str] = Query(default=None),
+    open_status: Optional[str] = Query(default=None),
+):
+    """Export filtered venues as CSV. Uses the same filter semantics as /api/venues."""
+    where = []
+    params = []
+    def add_multi_like(field_vals, column_name):
+        if not field_vals:
+            return
+        vals = [v for v in field_vals if v and v.lower() != 'all']
+        if not vals:
+            return
+        sub = []
+        for v in vals:
+            sub.append(f"{column_name} LIKE ? COLLATE NOCASE")
+            params.append(f"%{v}%")
+        where.append("(" + " OR ".join(sub) + ")")
+
+    add_multi_like(chain, 'chain_name')
+    add_multi_like(category, 'sub_category')
+    add_multi_like(dma, 'dma')
+    if city and city.lower() != 'all':
+        where.append("city = ?")
+        params.append(city)
+    if state and state.lower() != 'all':
+        where.append("state_name = ?")
+        params.append(state)
+    if open_status:
+        if open_status.lower() == 'open':
+            where.append("(date_closed IS NULL OR date_closed = '')")
+        elif open_status.lower() == 'closed':
+            where.append("(date_closed IS NOT NULL AND date_closed <> '')")
+
+    base_sql = "FROM venues"
+    if where:
+        base_sql += " WHERE " + " AND ".join(where)
+
+    conn = get_conn()
+    cur = conn.cursor()
+    select_sql = f"SELECT id, entity_id, name, chain_name, sub_category, dma, city, state_name, foot_traffic, date_opened, date_closed {base_sql} ORDER BY name COLLATE NOCASE;"
+    cur.execute(select_sql, params)
+    rows = cur.fetchall()
+    conn.close()
+
+    def iter_csv():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        headers = ['id', 'entity_id', 'name', 'chain_name', 'category', 'dma', 'city', 'state', 'foot_traffic', 'date_opened', 'date_closed']
+        writer.writerow(headers)
+        yield buf.getvalue()
+        buf.seek(0); buf.truncate(0)
+        for r in rows:
+            writer.writerow([
+                r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8] or 0, r[9], r[10]
+            ])
+            yield buf.getvalue()
+            buf.seek(0); buf.truncate(0)
+
+    return StreamingResponse(iter_csv(), media_type='text/csv', headers={
+        'Content-Disposition': 'attachment; filename="venues.csv"'
+    })

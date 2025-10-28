@@ -27,10 +27,4 @@ npm run dev
 - `start-dev.bat`
 
 ## Useful API endpoints
-- `GET /api/pois`
-- `GET /api/visits?poi=Gym%20C&date_from=2025-10-18&date_to=2025-10-20`
-- `GET /api/summary?poi=Mall%20A`
 
-## Notes
-- DB is pre-seeded on first run; replace with your CSV by posting to `/api/ingest` or writing a quick loader.
-- Keep scope small: 1 filter, 1 chart, 4 KPIs → iterate if time remains.
